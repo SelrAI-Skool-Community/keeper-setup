@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# kp — Keeper Commander wrapper for fast credential lookup from Claude/scripts.
+#
+# Usage:
+#   kp search <term>        Find records by name or URL keyword
+#   kp get <uid|title>      Full record as JSON (all fields, including secrets)
+#   kp pass <uid|title>     Password only (use with `| pbcopy` or pipe to other tools)
+#   kp user <uid|title>     Username only
+#   kp url <uid|title>      URL only
+#   kp totp <uid|title>     One-time TOTP code (current 30s window)
+#   kp list                 List all records (uid + title)
+#
+# Records can be referenced by UID (22 chars) or by title (first match wins).
+#
+# If the local Keeper session is expired (2FA prompt, "not logged in", agent
+# connection refused), this wrapper fails silently with exit 1 instead of
+# spamming auth prompts to stdout. Re-auth with: keeper login <your-email>
+
+set -uo pipefail
+
+# _kr <keeper subcommand and args...> — run keeper locally; silent-fail on dead session.
+_kr() {
+    local out rc
+    out="$(keeper "$@" 2>&1)"; rc=$?
+    if printf '%s' "$out" | grep -qE "Two-Factor Authentication Required|Not logged in|Please login|Error connecting to agent|You are not logged in"; then
+        # Session dead — fail silently. Re-auth in a real Terminal: keeper login <your-email>
+        return 1
+    fi
+    [ $rc -eq 0 ] && printf '%s\n' "$out"
+    return $rc
+}
+
+CMD="${1:-help}"
+shift || true
+
+resolve_uid() {
+    local q="$1"
+    if [[ "$q" =~ ^[A-Za-z0-9_-]{22}$ ]]; then echo "$q"; return; fi
+    _kr search "$q" 2>/dev/null | awk 'NR>2 && length($2)==22 {print $2; exit}'
+}
+
+field() {
+    local uid="$1" type="$2"
+    _kr get "$uid" --format json 2>/dev/null \
+        | jq -r --arg t "$type" '.fields[]? | select(.type==$t) | .value[0] // empty' \
+        | head -1
+}
+
+case "$CMD" in
+    search)
+        [ $# -eq 0 ] && { echo "Usage: kp search <term>" >&2; exit 1; }
+        _kr search "$@" 2>/dev/null
+        ;;
+    get)
+        [ $# -eq 0 ] && { echo "Usage: kp get <uid|title>" >&2; exit 1; }
+        uid=$(resolve_uid "$1")
+        [ -z "$uid" ] && { echo "No record found: $1" >&2; exit 1; }
+        _kr get "$uid" --format json 2>/dev/null
+        ;;
+    pass|password)
+        [ $# -eq 0 ] && { echo "Usage: kp pass <uid|title>" >&2; exit 1; }
+        uid=$(resolve_uid "$1")
+        [ -z "$uid" ] && { echo "No record found: $1" >&2; exit 1; }
+        field "$uid" password
+        ;;
+    user|username|login)
+        [ $# -eq 0 ] && { echo "Usage: kp user <uid|title>" >&2; exit 1; }
+        uid=$(resolve_uid "$1")
+        [ -z "$uid" ] && { echo "No record found: $1" >&2; exit 1; }
+        field "$uid" login
+        ;;
+    url)
+        [ $# -eq 0 ] && { echo "Usage: kp url <uid|title>" >&2; exit 1; }
+        uid=$(resolve_uid "$1")
+        [ -z "$uid" ] && { echo "No record found: $1" >&2; exit 1; }
+        field "$uid" url
+        ;;
+    totp|otp)
+        [ $# -eq 0 ] && { echo "Usage: kp totp <uid|title>" >&2; exit 1; }
+        uid=$(resolve_uid "$1")
+        [ -z "$uid" ] && { echo "No record found: $1" >&2; exit 1; }
+        _kr totp "$uid" 2>/dev/null
+        ;;
+    list)
+        _kr list 2>/dev/null
+        ;;
+    help|--help|-h|"")
+        sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
+        ;;
+    *)
+        echo "Unknown command: $CMD" >&2
+        echo "Run 'kp help' for usage." >&2
+        exit 1
+        ;;
+esac

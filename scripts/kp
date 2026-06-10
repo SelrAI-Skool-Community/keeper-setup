@@ -1,0 +1,222 @@
+#!/bin/bash
+# kp-version: ksm-first-2026-05-30
+# kp — KSM-first credential fetch wrapper, with Keeper Commander silent-fail fallback.
+#
+# Order of operations:
+#   1. Try Keeper Secrets Manager (ksm CLI) — fast, no master password, no 2FA.
+#      Works for any record in a folder shared with this user's KSM application
+#      (the folder UID is read from ~/.keeper/ksm-config at runtime).
+#   2. Fall back to Keeper Commander via scripts/kp-commander-only (the legacy
+#      auth path). Silent-fails if the Commander session is dead — no 2FA prompts
+#      spammed to stdout.
+#
+# Subcommands:
+#   kp search <term>           List/find records (KSM first)
+#   kp pass <title>            Password value
+#   kp user <title>            Login value
+#   kp url <title>             URL value
+#   kp totp <title>            Current TOTP code
+#   kp get <title>             Full record
+#   kp list                    List records (KSM + Commander)
+#   kp add <title> <pw> [login] [url]  Add a record to the KSM-shared folder
+#   kp help                    Usage
+#
+# Env flags:
+#   KP_VERBOSE_AUTH=1   show original auth prompts (debugging)
+#   KP_SKIP_KSM=1       force Commander path (skip KSM)
+#   KP_NO_FALLBACK=1    KSM only, no Commander fallback
+#
+# Config:
+#   ~/.keeper/ksm-config   Sourced if present. Should set KSM_SF_UID=<folder-uid>
+#                          for the Shared Folder backing this user's KSM app.
+#                          Without it, `kp add` will refuse and the wrapper will
+#                          still WORK for read operations on any KSM-visible
+#                          record (notation lookup by title or UID).
+
+set -uo pipefail
+CMD="${1:-help}"; shift || true
+
+KSM_BIN="${KSM_BIN:-$HOME/.local/bin/ksm}"
+# Fallback to PATH lookup if the per-user path doesn't exist
+[ ! -x "$KSM_BIN" ] && KSM_BIN="$(command -v ksm 2>/dev/null || true)"
+
+# ksm storage preference: if keyring is installed but empty AND keeper.ini
+# exists, ksm ignores the .ini unless --ini-file is passed. Use it.
+KSM_INI_FLAG=""
+if [ -f "$HOME/keeper.ini" ]; then
+    KSM_INI_FLAG="--ini-file=$HOME/keeper.ini"
+fi
+
+# Wrapper so all ksm calls in this script include --ini-file when needed.
+KSM() {
+    if [ -n "$KSM_INI_FLAG" ]; then
+        "$KSM_BIN" $KSM_INI_FLAG "$@"
+    else
+        "$KSM_BIN" "$@"
+    fi
+}
+
+SKILL_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")")" && pwd)"
+COMMANDER_KP="$SKILL_DIR/kp-commander-only"
+# Also probe the canonical home-dir installs in case this script lives elsewhere
+[ ! -x "$COMMANDER_KP" ] && COMMANDER_KP="$HOME/.claude/skills/keeper-setup/scripts/kp-commander-only"
+[ ! -x "$COMMANDER_KP" ] && COMMANDER_KP="$HOME/bin/kp-commander-only"
+
+# Read per-install KSM folder UID
+KSM_SF_UID=""
+[ -f "$HOME/.keeper/ksm-config" ] && . "$HOME/.keeper/ksm-config"
+
+# Get a field via ksm notation. Usage: _ksm_field <title-or-uid> <field>
+_ksm_field() {
+    local key="$1" field="$2"
+    [ -x "$KSM_BIN" ] || return 1
+    KSM secret notation "keeper://${key}/field/${field}" 2>/dev/null
+}
+
+# Look up a record's UID by title via ksm.
+_ksm_uid_for_title() {
+    local title="$1"
+    [ -x "$KSM_BIN" ] || return 1
+    KSM secret list 2>/dev/null \
+      | awk -v t="$title" 'NR>2 && tolower($NF)==tolower(t) {print $1; exit}'
+}
+
+# Try the Commander-only fallback with auth prompts swallowed.
+_fallback_kp() {
+    if [ "${KP_NO_FALLBACK:-0}" = "1" ]; then return 1; fi
+    [ -x "$COMMANDER_KP" ] || return 1
+    local out
+    out="$(KP_NO_FALLBACK=1 "$COMMANDER_KP" "$@" </dev/null 2>&1)"
+    local rc=$?
+    if [ "${KP_VERBOSE_AUTH:-0}" != "1" ] && printf '%s' "$out" | grep -qE "^(Email|Password|Two-Factor Authentication Required|Selection|Data center|Use login|Enter master password|Enter 2FA Code|Not logged in|EOF when reading|/opt/homebrew.*python.*getpass|Warning: Password input)"; then
+        return 1
+    fi
+    printf '%s' "$out"
+    return $rc
+}
+
+case "$CMD" in
+    search)
+        term="${1:-}"
+        if [ "${KP_SKIP_KSM:-0}" != "1" ] && [ -x "$KSM_BIN" ]; then
+            ksm_out=$(KSM secret list 2>/dev/null | awk -v t="$term" 'NR<=2 || tolower($0) ~ tolower(t)')
+            if printf '%s' "$ksm_out" | tail -n +3 | grep -q .; then
+                printf '%s\n' "$ksm_out"
+                exit 0
+            fi
+        fi
+        _fallback_kp search "$term"
+        ;;
+
+    pass|user|url|totp)
+        key="${1:-}"
+        case "$CMD" in
+            pass) field=password ;;
+            user) field=login ;;
+            url)  field=url ;;
+            totp) field=oneTimeCode ;;
+        esac
+        if [ "${KP_SKIP_KSM:-0}" != "1" ] && [ -x "$KSM_BIN" ]; then
+            uid=$(_ksm_uid_for_title "$key")
+            if [ -n "$uid" ]; then
+                val=$(_ksm_field "$uid" "$field")
+                if [ -n "$val" ] && [ "$val" != "null" ]; then
+                    printf '%s' "$val"
+                    exit 0
+                fi
+            fi
+            # Also treat the key as a UID directly
+            val=$(_ksm_field "$key" "$field")
+            if [ -n "$val" ] && [ "$val" != "null" ]; then
+                printf '%s' "$val"
+                exit 0
+            fi
+        fi
+        _fallback_kp "$CMD" "$key"
+        ;;
+
+    get)
+        key="${1:-}"
+        if [ "${KP_SKIP_KSM:-0}" != "1" ] && [ -x "$KSM_BIN" ]; then
+            ksm_out=$(KSM secret get -t "$key" 2>/dev/null)
+            if [ -n "$ksm_out" ] && ! printf '%s' "$ksm_out" | grep -qiE "(no record|not found|error)"; then
+                printf '%s\n' "$ksm_out"
+                exit 0
+            fi
+            uid=$(_ksm_uid_for_title "$key")
+            if [ -n "$uid" ]; then
+                ksm_out=$(KSM secret get --uid "$uid" 2>/dev/null)
+                if [ -n "$ksm_out" ]; then
+                    printf '%s\n' "$ksm_out"
+                    exit 0
+                fi
+            fi
+        fi
+        _fallback_kp get "$key"
+        ;;
+
+    list)
+        if [ "${KP_SKIP_KSM:-0}" != "1" ] && [ -x "$KSM_BIN" ]; then
+            echo "=== KSM records ==="
+            KSM secret list 2>/dev/null
+            echo ""
+        fi
+        echo "=== Commander vault (will return empty if session dead) ==="
+        _fallback_kp list
+        ;;
+
+    add|ksm-add)
+        title="${1:-}"; password="${2:-}"; login="${3:-}"; url="${4:-}"
+        if [ -z "$title" ] || [ -z "$password" ]; then
+            echo "Usage: kp add <title> <password> [login] [url]" >&2
+            exit 1
+        fi
+        if [ -z "$KSM_SF_UID" ]; then
+            echo "kp add: KSM_SF_UID not set. Edit ~/.keeper/ksm-config to define it." >&2
+            echo "        (The skill's ksm-init.sh sets this automatically.)" >&2
+            exit 2
+        fi
+        if [ ! -x "$KSM_BIN" ]; then
+            echo "kp add: ksm CLI not found. Run /keeper-setup or install via pipx." >&2
+            exit 3
+        fi
+        args=( --sf "$KSM_SF_UID" --rt login -t "$title" "password=$password" )
+        [ -n "$login" ] && args+=( "login=$login" )
+        [ -n "$url" ] && args+=( "url=$url" )
+        KSM secret add field "${args[@]}"
+        ;;
+
+    help|--help|-h|"")
+        cat <<EOF
+kp — KSM-first credential fetch with Commander fallback.
+
+  kp search <term>          List/find records (KSM first)
+  kp pass <title>           Password value
+  kp user <title>           Login value
+  kp url <title>            URL value
+  kp totp <title>           Current TOTP code
+  kp get <title>            Full record
+  kp list                   List records (KSM + Commander)
+  kp add <title> <pw> [login] [url]   Add record to KSM-shared folder
+
+Env:
+  KP_VERBOSE_AUTH=1   show original auth prompts (debugging)
+  KP_SKIP_KSM=1       force Commander path
+  KP_NO_FALLBACK=1    KSM only, no Commander fallback
+
+Config:
+  KSM CLI:        $KSM_BIN
+  Fallback kp:    $COMMANDER_KP
+  Config file:    $HOME/.keeper/ksm-config
+  KSM folder UID: ${KSM_SF_UID:-(not set — kp add disabled until ksm-init.sh writes it)}
+
+If KSM isn't set up: run /keeper-setup (the skill).
+EOF
+        ;;
+
+    *)
+        echo "Unknown command: $CMD" >&2
+        echo "Run 'kp help' for usage." >&2
+        exit 1
+        ;;
+esac
