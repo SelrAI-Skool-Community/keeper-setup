@@ -1,6 +1,6 @@
 # Worked example: keeper-setup session
 
-A condensed transcript of a real install flow.
+A condensed transcript of an example install flow.
 
 ## Example 1: Standard KSM-first install
 
@@ -25,12 +25,13 @@ enable KSM checkbox]
 User: on
 
 Claude: [opens the Vault, narrates the 5 clicks: Shared Folder, KSM Application,
-share folder with app, generate token]
+share folder with app, generate token — token goes in a Terminal, never chat]
 
-User: AU:dGhpcy1pcy1ub3QtYS1yZWFsLXRva2Vu...
+User: token
 
-Claude: [runs scripts/ksm-init.sh with the token — profile lands in Keychain,
-folder UID written to ~/.keeper/ksm-config]
+Claude: [runs scripts/ksm-init.sh — a Terminal window opens, the user pastes
+the one-time token there, the window auto-closes on success; profile lands in
+Keychain, folder UID written to ~/.keeper/ksm-config]
 [runs scripts/smoke.sh — SMOKE PASS]
 [round-trip test: kp add kp-self-test → kp pass kp-self-test → match → cleanup]
 

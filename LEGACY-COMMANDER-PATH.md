@@ -60,4 +60,4 @@ If `kp pass` keeps tripping 2FA every few hours despite `persistent_login on` + 
 
 ## Why this file exists
 
-KSM was promoted to the primary path after repeated Commander session failures on accounts where a parent MSP's role enforcement policy overrides local `persistent_login` settings. Migration to a sibling account under the same MSP showed the same behaviour. KSM was the durable fix — its token-based auth bypasses the regular login session entirely. The old Commander-based install path is preserved here as the fallback — it remains the right answer for accounts that can't enable KSM (no license, SSO-only, etc.).
+KSM is the primary path because on accounts where a parent MSP's role enforcement policy overrides local `persistent_login` settings, Commander sessions fail repeatedly — and moving to a sibling account under the same MSP changes nothing, since the policy follows the tenant. KSM is the durable fix: its token-based auth doesn't use the regular login session at all. The old Commander-based install path is preserved here as the fallback — it remains the right answer for accounts that can't enable KSM (no license, SSO-only, etc.).

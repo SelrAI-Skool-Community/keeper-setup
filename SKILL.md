@@ -17,7 +17,7 @@ metadata:
 
 > **The promise:** after this skill runs, the user runs `kp pass mapbox` from any shell or Claude session and the value comes back silently. Forever. No 2FA prompts. No "your session has expired." No master password re-entry.
 >
-> **The trick:** Keeper Secrets Manager (KSM) uses a long-lived application token that lives in macOS Keychain. It bypasses the regular Keeper login session — and therefore bypasses any upstream MSP enforcement policy that would otherwise kill `persistent_login` and force re-auth.
+> **The trick:** Keeper Secrets Manager (KSM) uses a long-lived application token that lives in macOS Keychain. It authenticates independently of the regular Keeper login session, so session-timeout enforcement policies (common on managed/MSP-administered accounts) never interrupt it — no more `persistent_login` dying and forcing re-auth.
 >
 > **Hard rule:** the user's **master password NEVER enters Claude chat**. Master-password prompts go into a real Terminal window that this skill opens via AppleScript. If you (the agent) are about to ask the user to type or paste their master password into chat — **STOP**. Use the Terminal pattern.
 
@@ -28,7 +28,7 @@ metadata:
 | User DOES | User DOES NOT |
 |---|---|
 | Sign in to Keeper Admin Console once (browser) | Open Terminal manually |
-| Click 5 things in the Vault UI (create Shared Folder, create KSM Application, share folder with app, generate token, transfer it into the agent-opened terminal) | Paste a master password into Claude chat |
+| Click 5 things in the Vault UI (create Shared Folder, create KSM Application, share folder with app, generate token, transfer it into the agent-opened terminal) | Paste a master password or KSM token into Claude chat |
 | Paste the one-time KSM token into a Terminal window the skill opens (auto-closes on success) | Type the same code in two places |
 | Confirm a couple of yes/no questions in chat (e.g. account email) | Run brew, pipx, keeper, ksm commands manually |
 | Restart Claude Code at the end so `~/bin/kp` is on PATH for new shells | Edit `.zshrc`, `.bashrc`, or any config |
@@ -143,16 +143,16 @@ Narrate the 5 clicks.
 
 ### Click 4 — Generate the one-time access token
 
-> "Still inside the application, find the **Devices** section / **Add Device** button → click **Generate Access Token**. The token looks like `AU:abc123…`. Copy the whole thing. Then come back and paste it as your next message. Single-use — once I consume it, it's dead."
+> "Still inside the application, find the **Devices** section / **Add Device** button → click **Generate Access Token**. The token looks like `AU:abc123…`. Copy the whole thing. **Don't paste it here in chat** — come back and say 'token' and I'll open a Terminal window for you to paste it into. Single-use — once consumed, it's dead."
 
 ### Click 5 — Hand off
 
-When the user pastes the token:
+When the user says they have the token:
 ```bash
-~/.claude/skills/keeper-setup/scripts/ksm-init.sh "AU:abc123..."
+~/.claude/skills/keeper-setup/scripts/ksm-init.sh
 ```
 
-The script runs `ksm profile init` non-interactively, auto-discovers the Shared Folder UID via `ksm folder list`, and writes it to `~/.keeper/ksm-config`. After this:
+The script opens a Terminal window that prompts for the token, runs `ksm profile init`, auto-discovers the Shared Folder UID via `ksm folder list`, writes it to `~/.keeper/ksm-config`, and closes itself on success. The token never touches chat, shell history, or the process table. After this:
 - `kp pass <title>` works for any record in `KSM Mac Creds`
 - `kp add <title> <pw>` writes new records to `KSM Mac Creds`
 
@@ -181,7 +181,7 @@ If Phase 3 hit the license wall, fall through to **`LEGACY-COMMANDER-PATH.md`** 
 - `~/bin/kp` set to `scripts/kp-commander-only` (no KSM, plain Commander wrapper)
 - Persistent_login + 30d timeout + IP auto-approve dance
 - `kp add` is NOT supported on this path — write via Keeper Desktop
-- Sessions die when upstream MSP policy kicks in; accept the periodic re-auth
+- Sessions die when an upstream enforcement policy kicks in; accept the periodic re-auth
 
 ---
 
@@ -242,7 +242,7 @@ The application has no folders shared with it. Re-do Phase 4 Click 3 (Vault UI �
 
 ### "Keyring has no profiles, but a keeper.ini file was found"
 
-The `ksm` CLI sees the keyring extra is installed but the keychain is empty. It ignores `~/keeper.ini` unless told. The `kp` wrapper auto-handles this by passing `--ini-file ~/keeper.ini` when that file exists. To migrate `.ini` → Keychain: generate a fresh one-time token and re-run `ksm-init.sh <new-token>`.
+The `ksm` CLI sees the keyring extra is installed but the keychain is empty. It ignores `~/keeper.ini` unless told. The `kp` wrapper auto-handles this by passing `--ini-file ~/keeper.ini` when that file exists. To migrate `.ini` → Keychain: generate a fresh one-time token and re-run `ksm-init.sh` (paste the new token into the Terminal it opens).
 
 ### "2FA prompt asks for `1`, I typed my password by mistake"
 
@@ -254,7 +254,7 @@ KeePass strips shared records and custom-field records (i.e., MCP creds). Use Ke
 
 ### Commander session dies inside an hour despite `persistent_login on`
 
-Upstream MSP enforcement is overriding your local setting. No local fix. Use the KSM path. KSM tokens bypass the session layer entirely.
+An upstream enforcement policy (managed/MSP-administered account) is overriding your local setting. No local fix. Use the KSM path — KSM tokens don't use the login session, so the policy doesn't apply to them.
 
 ### `kp add` fails with "KSM_SF_UID not set"
 
@@ -282,12 +282,12 @@ Debug: `KP_VERBOSE_AUTH=1 KP_SKIP_KSM=1 kp pass <title>` forces Commander path w
 
 ---
 
-## For the org admin
+## For the org admin (team rollout)
 
-After a team member completes this skill:
+The rollout model is one KSM application per person, on any Keeper Business or Enterprise account. After a team member completes this skill:
 - Their KSM application is THEIRS alone — the admin can't read their KSM scope, they can't read the admin's
 - For shared team records: create one team Shared Folder, share it with each team member's user, and each member re-shares it into their own KSM application (Phase 4 Click 3) to make those records visible via their `kp pass`
-- The per-user-app model is intentional. KSM tokens are sensitive; the only leak vector is the user leaking their own token
+- The per-user-app model is intentional. KSM tokens are sensitive; the only leak vector is a user leaking their own token, which exposes only that user's shared scope
 - Token rotation: revoke device + generate new token + re-init. Two clicks + one CLI command
 
 To audit: `keeper audit-report --span week` (Enterprise feature).
