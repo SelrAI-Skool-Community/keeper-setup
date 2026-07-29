@@ -75,7 +75,7 @@ case "${1:-}" in
         osascript <<OSA
 tell application "Terminal"
     activate
-    do script "echo '=== KEEPER SECRETS MANAGER INIT ==='; echo 'Paste the one-time token from the Vault UI here. The window auto-closes on success.'; echo ''; read -r -p 'Token: ' KSM_TOKEN; ksm profile init \\"\$KSM_TOKEN\\" && bash '$SELF' --discover && echo '' && echo 'OK — closing in 3s' && sleep 3 && exit"
+    do script "echo '=== KEEPER SECRETS MANAGER INIT ==='; echo 'Paste the one-time token from the Vault UI here. The window auto-closes on success.'; echo ''; printf 'Token: '; IFS= read -r KSM_TOKEN; ksm profile init \\"\$KSM_TOKEN\\" && bash '$SELF' --discover && echo '' && echo 'OK — closing in 3s' && sleep 3 && exit"
 end tell
 OSA
         echo "==> Terminal opened. Paste your one-time token there."

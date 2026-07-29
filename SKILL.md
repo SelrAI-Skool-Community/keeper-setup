@@ -167,8 +167,8 @@ The script opens a Terminal window that prompts for the token, runs `ksm profile
 kp add "kp-self-test" "round-trip-$$"
 [ "$(kp pass "kp-self-test")" = "round-trip-$$" ] && echo "✅ end-to-end works" || echo "❌ mismatch"
 # Cleanup
-UID=$(ksm --ini-file="$HOME/keeper.ini" secret list 2>/dev/null | awk '$NF=="kp-self-test"{print $1}' | head -1)
-[ -n "$UID" ] && ksm --ini-file="$HOME/keeper.ini" secret delete -u "$UID" >/dev/null 2>&1
+REC_UID=$(ksm --ini-file="$HOME/keeper.ini" secret list 2>/dev/null | awk '$NF=="kp-self-test"{print $1}' | head -1)
+[ -n "$REC_UID" ] && ksm --ini-file="$HOME/keeper.ini" secret delete -u "$REC_UID" >/dev/null 2>&1
 ```
 
 ---
