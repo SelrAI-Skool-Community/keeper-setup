@@ -10,14 +10,28 @@ it is not available, the skill includes a Commander-only fallback.
 
 ## One-prompt install
 
-Open this folder in Claude Code or Codex and paste:
+Open a new Claude Code session, anywhere, and paste:
 
 ```text
-Install Keeper from this skill. Read START-HERE.md, choose the correct access lane, run the
-installer, and finish every verification in CLOSEOUT.md. Never ask me to paste my Keeper master
-password or a KSM token into chat. Use a real Terminal for secret entry. If a check fails, diagnose
-it with kp doctor, fix the documented cause, and retry until the package and access checks pass.
+Install the Keeper setup skill for me, following the install steps in https://github.com/luke-heka/keeper-setup
 ```
+
+That is the whole install. Claude clones this repo, copies the skill into
+`~/.claude/skills/keeper-setup/`, runs the installer, and works through the verification steps.
+
+Claude is told, by the skill itself, never to ask you to paste your Keeper master password or a
+KSM token into chat. Secret entry happens in a real Terminal window. If a check fails it runs
+`kp doctor`, reads the matching failure, applies the fix and retries.
+
+### Doing it by hand instead
+
+1. Clone this repo and copy the folder to `~/.claude/skills/keeper-setup/`.
+2. Run `bash scripts/install.sh`.
+3. Read `START-HERE.md` and follow the lane it routes you to.
+4. Finish every verification in `CLOSEOUT.md`.
+5. Restart Claude Code so the skill loads.
+
+You know it worked when `kp pass <record-name>` returns a value in any shell.
 
 The agent handles the install and checks. You may need to sign in to Keeper once, approve the
 device, or enable KSM in the Keeper Admin Console.
