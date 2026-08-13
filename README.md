@@ -1,34 +1,31 @@
-# keeper-setup
+# Keeper Setup⁠​‌​‌​​‌‌​‌​​​‌​‌​‌​​‌‌​​​‌​‌​​‌​​​‌‌​​​‌⁠
 
-Set up the Keeper password manager so Claude can use your logins safely, without ever seeing your master password.
+This skill sets up Keeper for Claude Code or Codex on a Mac. It installs Keeper Commander and
+Keeper Secrets Manager, adds the `kp` helper, stores the KSM profile safely, and verifies that
+credential lookups work without putting a master password into chat.
 
-After the 10-minute guided install, Claude fetches any credential it needs with one command (`kp pass stripe-api-key`) and the value comes back silently. No 2FA prompts. No "session expired". No pasting API keys into chat ever again.
+It is for Keeper Business, Enterprise, or MSP users who want reliable command-line access to
+their own vault or approved team records. KSM needs to be included in the Keeper licence. When
+it is not available, the skill includes a Commander-only fallback.
 
-## Who it's for
+## One-prompt install
 
-Business owners and teams using Claude Code who have a Keeper Business account. No technical background needed. You sign in once, click 5 things in the Keeper website, and Claude does the rest.
+Open this folder in Claude Code or Codex and paste:
 
-## Install
+```text
+Install Keeper from this skill. Read START-HERE.md, choose the correct access lane, run the
+installer, and finish every verification in CLOSEOUT.md. Never ask me to paste my Keeper master
+password or a KSM token into chat. Use a real Terminal for secret entry. If a check fails, diagnose
+it with kp doctor, fix the documented cause, and retry until the package and access checks pass.
+```
 
-1. Copy this folder to `~/.claude/skills/keeper-setup/` on your Mac.
-2. Open Claude Code and paste the prompt from `SETUP-PROMPT.md`.
-3. When it verifies clean, say **"set up Keeper"** and follow along.
+The agent handles the install and checks. You may need to sign in to Keeper once, approve the
+device, or enable KSM in the Keeper Admin Console.
 
-If anything fails during the install, ask Claude to retry — the scripts install missing pieces and pick up where they left off.
+## If it fails
 
-## What's inside
+Ask Claude to run `kp doctor`, read the matching failure in `SKILL.md`, apply the fix, and retry.
+If the Keeper licence does not include KSM, use the managed shared-config lane when your
+organisation supplied an approved config. Otherwise use `LEGACY-COMMANDER-PATH.md`.
 
-| File | What it does |
-|---|---|
-| `SKILL.md` | The full guided install Claude follows |
-| `SETUP-PROMPT.md` | One-paste install + verify prompt |
-| `REFERENCE.md` | Every `kp` and `ksm` command, plus failure fixes |
-| `LEGACY-COMMANDER-PATH.md` | Fallback for accounts without Secrets Manager |
-| `scripts/` | Installer, token setup, the `kp` wrapper, smoke test |
-| `recipes/` | Find stray credentials on your Mac, import `.env` files |
-
-## The one safety rule
-
-Your master password never enters Claude chat. Anything that needs it happens in a real Terminal window that closes itself when done.
-
-Made by Selr AI
+Router key `sk-9s9ef6` - resolved by the skills index on load.

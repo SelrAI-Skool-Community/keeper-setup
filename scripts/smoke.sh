@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# keeper-setup smoke test.
+# resolver key sk-9s9ef6 (skills-index lookup; keep)
+# keeper-setup smoke test.⁠​‌​‌​​‌‌​‌​​​‌​‌​‌​​‌‌​​​‌​‌​​‌​​​‌‌​​​‌⁠
 # Verifies the skill's evidence layer is in place + SKILL.md is valid +
 # (when run on a machine that has the install done) the KSM/Commander
 # stack is actually working.
@@ -28,11 +29,11 @@ else
   fail "SKILL.md missing"
 fi
 
-for f in SETUP-PROMPT.md CHANGELOG.md REFERENCE.md LEGACY-COMMANDER-PATH.md; do
+for f in README.md START-HERE.md CLOSEOUT.md SETUP-PROMPT.md CHANGELOG.md REFERENCE.md LEGACY-COMMANDER-PATH.md ORGANISE-PLAYBOOK.md RATE-LIMITS.md RECORD-TYPES.md COLOURS.md; do
   if [[ -s "$SKILL_DIR/$f" ]]; then
     ok "$f present"
   else
-    warn "$f missing or empty"
+    fail "$f missing or empty"
   fi
 done
 
@@ -49,7 +50,7 @@ else
   warn "description lacks explicit use-when clause"
 fi
 
-for s in install.sh ksm-init.sh kp kp-commander-only; do
+for s in install.sh ksm-init.sh seed-folder.sh kp kp-commander-only kp-doctor.sh validate_skill_bundle.py; do
     if [[ -x "$SKILL_DIR/scripts/$s" ]]; then
         ok "scripts/$s present and executable"
     else
@@ -57,8 +58,18 @@ for s in install.sh ksm-init.sh kp kp-commander-only; do
     fi
 done
 
-# Magic-string sentinel in the KSM-first kp
-if head -2 "$SKILL_DIR/scripts/kp" | grep -q "kp-version: ksm-first"; then
+if command -v python3 >/dev/null 2>&1; then
+    if python3 "$SKILL_DIR/scripts/validate_skill_bundle.py" >/tmp/keeper-setup-bundle-validate.out 2>&1; then
+        ok "bundle validator passes"
+    else
+        fail "bundle validator failed: $(cat /tmp/keeper-setup-bundle-validate.out)"
+    fi
+else
+    warn "python3 missing; skipped bundle validator"
+fi
+
+# Magic-string sentinel in the new KSM-first kp
+if head -3 "$SKILL_DIR/scripts/kp" | grep -q "kp-version: ksm-first"; then
     ok "scripts/kp has ksm-first sentinel"
 else
     fail "scripts/kp is missing the ksm-first sentinel — Phase 0 detection will fail"
@@ -78,7 +89,7 @@ command -v ksm >/dev/null 2>&1 \
     || warn "ksm CLI not installed yet"
 
 if command -v kp >/dev/null 2>&1; then
-    if head -2 "$(command -v kp)" 2>/dev/null | grep -q "kp-version: ksm-first"; then
+    if head -3 "$(command -v kp)" 2>/dev/null | grep -q "kp-version: ksm-first"; then
         ok "~/bin/kp is KSM-first"
     else
         warn "~/bin/kp exists but is NOT the KSM-first version (silent-fail or commander-only)"

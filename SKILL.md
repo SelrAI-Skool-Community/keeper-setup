@@ -1,25 +1,125 @@
 ---
 name: keeper-setup
-description: "FULLY AUTONOMOUS Keeper credential setup for Claude Code (and Codex, Cursor, any agentic CLI). Installs Keeper Commander + Keeper Secrets Manager CLI, walks the user through 5 Vault UI clicks to mint a long-lived KSM token, and installs the KSM-first `kp` wrapper at `~/bin/kp`. End state: `kp pass <record>` returns the value silently with zero master-password prompts, zero 2FA, forever. Use when the user says 'connect my Keeper', 'set up Keeper', 'install the password manager', 'set up credentials', 'fix the 2FA loop', 'my keeper keeps logging me out', or when `kp` is missing from the machine."
+description: "Use when the user says \"connect my Keeper\", \"set up Keeper\", \"install the password manager\", \"I need access to the team passwords\", \"set up credentials\", \"fix the 2FA loop\", \"Keeper keeps logging me out\", \"bring Keeper into Claude Code\", or \"set up KSM\", or when `kp search` fails because `kp` is missing."
 allowed-tools: Bash, Read, Write, Edit, AskUserQuestion
 metadata:
   category: Productivity & Integrations
   tags: [keeper, password-manager, credentials, secrets, security, ksm, autonomous, team]
-  audience: Any business owner or team with a Keeper Business account
+  audience: Any team member setting up a new Mac, or any developer with a Keeper Business/Enterprise/MSP account they admin
   time-to-complete: 10-15 minutes (most of it is the user clicking through Admin Console + Vault UI once)
-  cost-to-user: $0 (uses an existing Keeper seat; KSM is an enterprise add-on, included on some tiers)
+  cost-to-user: free (uses an existing Keeper seat; KSM is an enterprise add-on usually included on MSP tier)
   autonomy-bar: "User signs in to Keeper Admin Console once, clicks 5 things in the Vault UI, pastes one one-time token into a Terminal that auto-closes. Everything else — install, config, wrapper deploy, test — runs from Claude silently."
-  shipping: "Lives at ~/.claude/skills/keeper-setup/. Distribute to a team via a shared skill repository synced to GitHub."
-  owner: Selr AI
+  shipping: "Lives at ~/.claude/skills/keeper-setup/. Distribute to a team via your shared skill repository (e.g. a kit folder synced to GitHub)."
+  updated: "2026-08-03 - added the licence-gated KSM check, the shared-config lane, and four common failure modes: silent hang, false session, ambiguous titles, and portable kp doctor resolution."
 ---
 
-# Keeper Setup — KSM-first
+# Keeper Setup — KSM-first⁠​‌​‌​​‌‌​‌​​​‌​‌​‌​​‌‌​​​‌​‌​​‌​​​‌‌​​​‌⁠
 
-> **The promise:** after this skill runs, the user runs `kp pass mapbox` from any shell or Claude session and the value comes back silently. Forever. No 2FA prompts. No "your session has expired." No master password re-entry.
+> **The promise:** after this skill runs, the user runs `kp pass example-service` from any shell or Claude session and the value comes back silently while the KSM token remains active.
 >
-> **The trick:** Keeper Secrets Manager (KSM) uses a long-lived application token that lives in macOS Keychain. It authenticates independently of the regular Keeper login session, so session-timeout enforcement policies (common on managed/MSP-administered accounts) never interrupt it — no more `persistent_login` dying and forcing re-auth.
+> **The trick:** Keeper Secrets Manager (KSM) uses a long-lived application token that lives in macOS Keychain. It bypasses the regular Keeper login session and any upstream session policy that would otherwise kill `persistent_login` and force re-auth.
 >
-> **Hard rule:** the user's **master password NEVER enters Claude chat**. Master-password prompts go into a real Terminal window that this skill opens via AppleScript. If you (the agent) are about to ask the user to type or paste their master password into chat — **STOP**. Use the Terminal pattern.
+> **Hard rule:** the user's **master password NEVER enters Claude chat**. Master-password prompts go into a real Terminal window that this skill opens via AppleScript. If you are about to ask the user to type or paste their master password into chat, **STOP** and use the Terminal pattern.
+
+---
+
+## First: choose the access lane
+
+Choose the lane before installing. A licence gate cannot be fixed by repeating configuration steps.
+
+**Fresh KSM application:** use Phases 1 to 5 when the Keeper licence lets this user create a
+Secrets Manager application. Verify first with `keeper secrets-manager app list < /dev/null`.
+
+**Managed shared config:** use this lane only when the organisation has already provided an
+approved KSM config through Keeper. Do not paste the config into chat.
+
+1. Run `scripts/install.sh` from this skill.
+2. Sign in to Keeper Vault or Keeper Desktop and download the supplied `keeper.ini` attachment.
+3. Save it as `~/keeper.ini`, run `chmod 600 ~/keeper.ini`, and set `KSM_SF_UID` plus
+   `KP_CANONICAL_USER` in `~/.keeper/ksm-config`.
+4. Run `scripts/smoke.sh`, then `kp doctor`.
+
+If no shared config has been supplied and the licence check returns:
+
+```
+Permission denied: Secrets Manager or Privileged Access Manager is not active on your Keeper License
+```
+
+it is a **licence gate, not a permissions or config problem**. Use
+`LEGACY-COMMANDER-PATH.md`, or leave the KSM upgrade as an account-owner decision. Ask Claude to
+run `kp doctor`, apply the matching lane, and retry the checks.
+
+## Four common traps
+
+These cost hours before they were written down. Every one produces a *confidently wrong*
+symptom, which is why they are worth reading before you debug anything.
+
+1. **`keeper` hangs forever instead of failing.** With no live session it prints a hidden
+   master-password prompt and waits. In a script or an agent that reads as a network timeout
+   or a dead command. **Append `< /dev/null` to every non-interactive `keeper` call**; it then
+   fails in about a second with the real reason.
+
+2. **`keeper whoami` is not a session check.** It exits 0 from cached account details while
+   real vault reads still demand a password. Code that gates on it reports "signed in", then
+   fails later with a misleading error about the record instead of the session. The only
+   honest check is attempting an actual record read.
+
+3. **A title lookup returns EMPTY when the title is ambiguous.** Several records sharing one
+   title makes `ksm secret notation` fail with *"multiple records match record UID/Title"*, and
+   `kp pass <title>` yields nothing at all — which reads as "no access" on a perfectly good
+   config. Anything probing a shared record must fall back to resolving by UID.
+
+4. **A record can be named after another record's UID, and be load-bearing.** `kp` resolves by
+   title, so an automation may read a record titled `EXAMPLE_RECORD_UID`. It can look like junk
+   from a bad `kp add`. Before deleting it, test whether any automation still resolves through it.
+
+Corollary for cleanups: `keeper rm -f` accepts multiple UIDs in its signature, but passing a
+long list mangles them into one argument and deletes nothing. Delete one at a time and verify
+each with `keeper get` afterwards.
+
+## Single source of truth: one account per user
+
+Each user has exactly **one canonical Keeper account**. Use the regional data centre configured
+for the organisation.
+Declare it once in `~/.keeper/ksm-config`:
+
+```
+KP_CANONICAL_USER="you@yourcompany.com.au"
+```
+
+`kp doctor` reads that value and flags any config pointing at a different account. A retired or
+migrated account is not a fallback. Archive stale profiles under `~/.keeper/` and never re-add
+them as active profiles unless the current Keeper organisation explicitly requires it.
+
+An old account address can survive as a **macOS Keychain account label** or inside a local
+blocklist. Confirm whether it is an active login before changing it.
+
+Prefer **slugified** record names such as `example-service--client-secret`. Search by fragment:
+`kp search example-service`, not a long prose title.
+
+## Something's wrong? Run `kp doctor` FIRST
+
+`kp doctor` (scripts/kp-doctor.sh) diagnoses the whole stack in one shot — ksm CLI, live KSM
+fetch, folder UID, wrapper version, canonical-account check, Commander session (batch-safe,
+never prompts), stray old-account configs, keepalive health. Every FAIL prints its exact fix.
+Run it before any manual debugging. A dead Commander session is a WARN, not a problem — KSM is the daily path and is
+unaffected by the MSP session ceiling.
+
+## Two phases — this SKILL.md is Phase 1 (ACCESS)
+
+Read **START-HERE.md** first when deciding whether this is an Access, Organise, import, legacy,
+or package-audit task. It is the routing map that keeps the Keeper work consolidated in this one
+skill instead of scattering into overlapping mini-skills.
+
+| Phase | Goal | Where |
+|---|---|---|
+| **1. Access** | `kp pass record-name` works silently, no 2FA, forever | this SKILL.md |
+| **2. Organise** | messy vault → clean folders, tags, record types, colours, filed docs | **ORGANISE-PLAYBOOK.md** |
+
+For a team member setting up their own Keeper: run Phase 1 here, then follow **ORGANISE-PLAYBOOK.md**
+\+ **RECORD-TYPES.md** + **COLOURS.md** + **RATE-LIMITS.md**. Those four files are the hard-won
+process from the 2026-06-24 build — they exist so nobody re-hits the rate-limit / folder-name /
+colour / delete hurdles. **Read RATE-LIMITS.md first** — it's the one that wastes the most time.
 
 ---
 
@@ -28,12 +128,12 @@ metadata:
 | User DOES | User DOES NOT |
 |---|---|
 | Sign in to Keeper Admin Console once (browser) | Open Terminal manually |
-| Click 5 things in the Vault UI (create Shared Folder, create KSM Application, share folder with app, generate token, transfer it into the agent-opened terminal) | Paste a master password or KSM token into Claude chat |
+| Click 5 things in the Vault UI (create Shared Folder, create KSM Application, share folder with app, generate token, transfer it into the agent-opened terminal) | Paste a master password into Claude chat |
 | Paste the one-time KSM token into a Terminal window the skill opens (auto-closes on success) | Type the same code in two places |
-| Confirm a couple of yes/no questions in chat (e.g. account email) | Run brew, pipx, keeper, ksm commands manually |
+| Confirm a couple of yes/no questions in chat (email, seed-from-env?) | Run brew, pipx, keeper, ksm commands manually |
 | Restart Claude Code at the end so `~/bin/kp` is on PATH for new shells | Edit `.zshrc`, `.bashrc`, or any config |
 
-If you're about to ask the user to do something not in the left column — pause and check the skill's patterns first. If a step fails, retry it, install whatever is missing, and continue. Never stop to wait for outside help.
+If you're about to ask the user to do something not in the left column — pause and check the skill's patterns first.
 
 ---
 
@@ -41,10 +141,10 @@ If you're about to ask the user to do something not in the left column — pause
 
 The skill auto-invokes on any of:
 - "Connect my Keeper" / "set up Keeper" / "install the password manager"
-- "Set up credentials"
+- "I need access to the team passwords" / "set up credentials"
 - "Fix the 2FA loop" / "my Keeper keeps logging me out" / "Keeper sessions die"
 - "Bring Keeper into Claude Code" / "set up KSM"
-- A `kp search` is attempted and `kp` returns command-not-found.
+- The CLAUDE.md doctrine fires `kp search` and `kp` returns command-not-found.
 
 ---
 
@@ -52,19 +152,25 @@ The skill auto-invokes on any of:
 
 Detect what's already installed so this skill skips work already done.
 
+Start at the EARLIEST phase whose prerequisite is missing:
+
 ```bash
-PHASE=1
-command -v keeper >/dev/null 2>&1 || PHASE=1
-command -v ksm >/dev/null 2>&1 || PHASE=1
-if command -v kp >/dev/null 2>&1 && head -2 "$(command -v kp)" 2>/dev/null | grep -q "kp-version: ksm-first"; then : ; else PHASE=5; fi
 INI_FLAG=()
 [ -f "$HOME/keeper.ini" ] && INI_FLAG=(--ini-file="$HOME/keeper.ini")
-ksm "${INI_FLAG[@]}" profile list 2>/dev/null | grep -q '^\s*\*' || PHASE=$((PHASE > 3 ? PHASE : 3))
-[ -f "$HOME/.keeper/ksm-config" ] && grep -q '^KSM_SF_UID="..*"' "$HOME/.keeper/ksm-config" || PHASE=$((PHASE > 4 ? PHASE : 4))
+if ! { command -v keeper >/dev/null 2>&1 && command -v ksm >/dev/null 2>&1 \
+       && head -3 "$(command -v kp 2>/dev/null)" 2>/dev/null | grep -q "kp-version: ksm-first"; }; then
+    PHASE=1   # CLIs or wrapper missing → full install
+elif ! ksm "${INI_FLAG[@]}" profile list 2>/dev/null | grep -q '^\s*\*'; then
+    PHASE=3   # installed, but no KSM profile → role enablement + token
+elif ! grep -q '^KSM_SF_UID="..*"' "$HOME/.keeper/ksm-config" 2>/dev/null; then
+    PHASE=4   # profile live, but no folder UID → re-run ksm-init.sh
+else
+    PHASE=5   # all wired → just verify
+fi
 echo "Start at Phase $PHASE"
 ```
 
-If everything passes — run `scripts/smoke.sh` and exit clean.
+If it says Phase 5 — run `scripts/smoke.sh`; on pass, exit clean, nothing to do.
 
 ---
 
@@ -81,15 +187,14 @@ What this does:
 4. Ensures `~/bin` is on PATH in `.zshrc`
 5. Writes a template `~/.keeper/ksm-config` (populated in Phase 4)
 
-Verify: `keeper version` and `ksm --version` both return values; `head -2 ~/bin/kp` shows the magic sentinel `# kp-version: ksm-first-2026-05-30`.
-
-If the install fails, retry it — the script is idempotent and installs missing dependencies on the way through.
+Verify: `keeper version` and `ksm --version` both return values; `head -3 ~/bin/kp` shows the magic sentinel `# kp-version: ksm-first-2026-05-30`.
 
 ---
 
 ## Phase 2 — Ask for Keeper email (the only thing typed in chat)
 
-Use `AskUserQuestion`:
+Ask the user directly. In Claude, use `AskUserQuestion` when available. In Codex, ask the same
+single question in chat or use `request_user_input` if the current mode exposes it.
 - Q: "What's the email on your Keeper account?"
 - Options: a best-guess based on context, "Other (paste custom)"
 
@@ -99,16 +204,15 @@ Use `AskUserQuestion`:
 
 ## Phase 3 — Enable Secrets Manager on the user's role (Admin Console)
 
-The user must navigate a browser. Narrate the exact path.
+The user must navigate a browser. We narrate the exact path verified on a real setup 2026-05-30.
 
 1. Open the Admin Console for them:
    ```bash
    open "https://keepersecurity.com.au/console"     # AU region
    # or "https://keepersecurity.com/console"        # US/global
-   # or "https://keepersecurity.eu/console"         # EU
    ```
 
-2. Narrate to the user:
+2. Tell the user:
    > "I just opened the Keeper Admin Console. Sign in with your email + master password + 2FA. When you see the Admin dashboard (Users / Roles / Reports in the left sidebar), come back here and say 'in'."
 
 3. **Wait for "in".** Don't poll, don't run other tools while waiting.
@@ -116,18 +220,22 @@ The user must navigate a browser. Narrate the exact path.
 4. After "in":
    > "In the Admin area, click the **Roles** tab (next to Users, Teams, 2FA). You'll see a list of roles. Click into your admin role — usually **Keeper Administrator**. Once inside, click **Enforcement Policies**. A vertical list of categories appears on the left (Login Settings, Two-Factor Authentication, Platform Restriction, etc.). Scroll down and click **Privileged Access Manager** (second from the bottom, above Transfer Account). The right pane switches. At the top: **Keeper Secrets Manager (KSM) → Can create applications and manage secrets**. Make sure that checkbox is ON, then hit **Save**. Say 'on' when saved."
 
-5. **Failure mode**: KSM section greyed out / "not included in your license" / "Permission Denied" — your tier doesn't include Secrets Manager. Fall through to the legacy path (`LEGACY-COMMANDER-PATH.md`), OR note that KSM is a paid add-on the user can enable with Keeper directly.
+5. **Failure mode:** a greyed-out KSM section, "not included in your license", or "Permission
+   Denied" means the tier does not include Secrets Manager. Do not loop on the Admin Console.
+   Use the managed shared-config lane at the top of this file when an approved config already
+   exists, fall back to `LEGACY-COMMANDER-PATH.md`, or leave the paid upgrade decision to the
+   account owner.
 
 ---
 
 ## Phase 4 — Create the KSM Application + Shared Folder + share + token (Vault UI)
 
-Open the Vault (match the region used in Phase 3):
+Open the Vault:
 ```bash
 open "https://keepersecurity.com.au/vault"
 ```
 
-Narrate the 5 clicks.
+Narrate the five clicks below and verify the result after each one.
 
 ### Click 1 — Create the Shared Folder
 
@@ -143,20 +251,20 @@ Narrate the 5 clicks.
 
 ### Click 4 — Generate the one-time access token
 
-> "Still inside the application, find the **Devices** section / **Add Device** button → click **Generate Access Token**. The token looks like `AU:abc123…`. Copy the whole thing. **Don't paste it here in chat** — come back and say 'token' and I'll open a Terminal window for you to paste it into. Single-use — once consumed, it's dead."
+> "Still inside the application, find the **Devices** section / **Add Device** button → click **Generate Access Token**. The token looks like `AU:abc123…`. Copy the whole thing. Then come back and paste it as your next message. Single-use — once I consume it, it's dead."
 
 ### Click 5 — Hand off
 
-When the user says they have the token:
+When the user pastes the token:
 ```bash
-~/.claude/skills/keeper-setup/scripts/ksm-init.sh
+~/.claude/skills/keeper-setup/scripts/ksm-init.sh "AU:abc123..."
 ```
 
-The script opens a Terminal window that prompts for the token, runs `ksm profile init`, auto-discovers the Shared Folder UID via `ksm folder list`, writes it to `~/.keeper/ksm-config`, and closes itself on success. The token never touches chat, shell history, or the process table. After this:
+The script runs `ksm profile init` non-interactively, auto-discovers the Shared Folder UID via `ksm folder list`, and writes it to `~/.keeper/ksm-config`. After this:
 - `kp pass <title>` works for any record in `KSM Mac Creds`
 - `kp add <title> <pw>` writes new records to `KSM Mac Creds`
 
-**Why auto-close-on-success?** A live shell prompt after init is a leak trap — voice dictation can accidentally route the user's next sentence (which might contain a real password) into the Terminal window. The auto-close pattern removes that window of risk.
+**Why auto-close-on-success?** A live shell prompt after init is a leak trap. Dictation or a stray paste can route the user's next sentence, which may contain a password, into Terminal.
 
 ---
 
@@ -166,14 +274,28 @@ The script opens a Terminal window that prompts for the token, runs `ksm profile
 ~/.claude/skills/keeper-setup/scripts/smoke.sh
 kp add "kp-self-test" "round-trip-$$"
 [ "$(kp pass "kp-self-test")" = "round-trip-$$" ] && echo "✅ end-to-end works" || echo "❌ mismatch"
-# Cleanup
+# Cleanup — NOTE: must not be named UID; that variable is read-only in zsh/bash
 REC_UID=$(ksm --ini-file="$HOME/keeper.ini" secret list 2>/dev/null | awk '$NF=="kp-self-test"{print $1}' | head -1)
 [ -n "$REC_UID" ] && ksm --ini-file="$HOME/keeper.ini" secret delete -u "$REC_UID" >/dev/null 2>&1
 ```
 
 ---
 
-## Phase 6 — Legacy Commander-only fallback (when KSM is unavailable)
+## Phase 6 — Seed the KSM folder from env vars (optional but recommended)
+
+Ask whether to seed the KSM folder from supported environment variables. Run dry mode first so
+the user can see record names without exposing values.
+
+```bash
+~/.claude/skills/keeper-setup/scripts/seed-folder.sh --dry-run   # for 'dry'
+~/.claude/skills/keeper-setup/scripts/seed-folder.sh --yes       # for 'seed'
+```
+
+After this, `kp pass stripe-api-key`, `kp pass ghl-api-key`, etc. work silently.
+
+---
+
+## Phase 7 — Legacy Commander-only fallback (when KSM is unavailable)
 
 If Phase 3 hit the license wall, fall through to **`LEGACY-COMMANDER-PATH.md`** (sibling file).
 
@@ -181,20 +303,21 @@ If Phase 3 hit the license wall, fall through to **`LEGACY-COMMANDER-PATH.md`** 
 - `~/bin/kp` set to `scripts/kp-commander-only` (no KSM, plain Commander wrapper)
 - Persistent_login + 30d timeout + IP auto-approve dance
 - `kp add` is NOT supported on this path — write via Keeper Desktop
-- Sessions die when an upstream enforcement policy kicks in; accept the periodic re-auth
+- Sessions die when upstream MSP policy kicks in; accept the periodic re-auth
 
 ---
 
-## Phase 7 — Make Claude on this Mac KNOW to use Keeper
+## Phase 8 — Make Claude (and Codex) on this Mac KNOW to use Keeper
 
-Without this, Claude will keep asking for credentials instead of running `kp pass`.
+Without this, the agent will keep asking for credentials instead of running `kp pass`.
 
 ```bash
-# Append the KSM doctrine to whichever CLAUDE.md is loaded for this user.
-# Common locations: ~/CLAUDE.md, ~/.claude/CLAUDE.md, or a team-shared kit CLAUDE.md.
+# Append the KSM doctrine to every agent instruction file present on this Mac:
+# CLAUDE.md for Claude Code, ~/.codex/AGENTS.md for Codex.
 CLAUDE_MD_TARGETS=(
     "$HOME/CLAUDE.md"
     "$HOME/.claude/CLAUDE.md"
+    "$HOME/.codex/AGENTS.md"
 )
 for CLAUDE_MD in "${CLAUDE_MD_TARGETS[@]}"; do
     [ -f "$CLAUDE_MD" ] || continue
@@ -213,16 +336,16 @@ done
 ```
 
 Self-test:
-> "Setup done. Ask me 'what's the Stripe API key?' — I should reflexively run `kp search stripe` instead of asking you to paste it."
+> "Setup done. Ask me for an example service credential. I should run `kp search example-service` instead of asking you to paste it."
 
 ---
 
-## Phase 8 — Final verification
+## Phase 9 — Final verification
 
 ```bash
 keeper version
 ksm --version
-head -2 "$(command -v kp)" | grep "kp-version"
+head -3 "$(command -v kp)" | grep "kp-version"
 keeper whoami 2>&1 | grep -E "User:|Account Type:" || echo "(no Commander session — fine, KSM is the primary path)"
 ksm --ini-file="$HOME/keeper.ini" profile list | grep '^\s*\*'
 ksm --ini-file="$HOME/keeper.ini" folder list | grep . | head -3
@@ -242,11 +365,11 @@ The application has no folders shared with it. Re-do Phase 4 Click 3 (Vault UI �
 
 ### "Keyring has no profiles, but a keeper.ini file was found"
 
-The `ksm` CLI sees the keyring extra is installed but the keychain is empty. It ignores `~/keeper.ini` unless told. The `kp` wrapper auto-handles this by passing `--ini-file ~/keeper.ini` when that file exists. To migrate `.ini` → Keychain: generate a fresh one-time token and re-run `ksm-init.sh` (paste the new token into the Terminal it opens).
+The `ksm` CLI sees the keyring extra is installed but the keychain is empty. It ignores `~/keeper.ini` unless told. The `kp` wrapper auto-handles this by passing `--ini-file ~/keeper.ini` when that file exists. To migrate `.ini` → Keychain: generate a fresh one-time token and re-run `ksm-init.sh <new-token>`.
 
 ### "2FA prompt asks for `1`, I typed my password by mistake"
 
-Keeper's interactive 2FA has TWO steps: Step 1 selects the method (`1=TOTP, q=Cancel`); Step 2 takes the 6-digit code. If you type your password at step 1, it errors three times then bails — and the password lands in terminal scrollback. If that happens, clear the scrollback and consider rotating that password.
+Keeper's interactive 2FA has TWO steps: Step 1 selects the method (`1=TOTP, q=Cancel`); Step 2 takes the 6-digit code. If you type your password at step 1, it errors three times then bails — and the password lands in terminal scrollback. (Rotating after such a spill is the account owner's call — know the failure mode either way.)
 
 ### Migrating from KeePass `.kdbx` dropped records
 
@@ -254,7 +377,7 @@ KeePass strips shared records and custom-field records (i.e., MCP creds). Use Ke
 
 ### Commander session dies inside an hour despite `persistent_login on`
 
-An upstream enforcement policy (managed/MSP-administered account) is overriding your local setting. No local fix. Use the KSM path — KSM tokens don't use the login session, so the policy doesn't apply to them.
+Upstream MSP enforcement is overriding your local setting. No local fix. Use the KSM path. KSM tokens bypass the session layer entirely.
 
 ### `kp add` fails with "KSM_SF_UID not set"
 
@@ -276,18 +399,18 @@ Debug: `KP_VERBOSE_AUTH=1 KP_SKIP_KSM=1 kp pass <title>` forces Commander path w
 
 - Migrate credentials FROM Mac → Keeper (use `recipes/audit-mac.sh` + `recipes/import-env-file.py` for that)
 - Create shared folders for OTHER users in your org (each user shares into their own KSM app)
-- Rotate exposed keys
+- Rotate exposed keys. This needs a separate, service-specific rotation plan.
 - Replace `.env` files with `kp pass` calls in code (deliberate per-project refactor)
-- Handle SSO accounts where the IdP forbids user-minted application tokens — those fall back to Phase 6
+- Handle SSO accounts where the IdP forbids user-minted application tokens — those fall back to Phase 7
 
 ---
 
-## For the org admin (team rollout)
+## For the org admin
 
-The rollout model is one KSM application per person, on any Keeper Business or Enterprise account. After a team member completes this skill:
-- Their KSM application is THEIRS alone — the admin can't read their KSM scope, they can't read the admin's
-- For shared team records: create one team Shared Folder, share it with each team member's user, and each member re-shares it into their own KSM application (Phase 4 Click 3) to make those records visible via their `kp pass`
-- The per-user-app model is intentional. KSM tokens are sensitive; the only leak vector is a user leaking their own token, which exposes only that user's shared scope
+After a team member completes this skill:
+- Their KSM application is THEIRS alone — you can't read their KSM scope, they can't read yours
+- For team shared records, such as an `Example Team` Shared Folder, share that folder with each team member's user. They then share it into their own KSM application in Phase 4, Click 3, so those records are visible through `kp pass`.
+- The per-user-app model is intentional. KSM tokens are sensitive; the only leak vector is the user leaking their own token
 - Token rotation: revoke device + generate new token + re-init. Two clicks + one CLI command
 
 To audit: `keeper audit-report --span week` (Enterprise feature).
@@ -297,13 +420,26 @@ To audit: `keeper audit-report --span week` (Enterprise feature).
 ## Reference
 
 - `REFERENCE.md` — full `ksm` + `kp` + `keeper` command surface
-- `LEGACY-COMMANDER-PATH.md` — Commander-only fallback install path
-- `CHANGELOG.md` — version history
+- `START-HERE.md` — workflow map that keeps Keeper Access, Organise, import, and audit paths together
+- `ORGANISE-PLAYBOOK.md` — Phase 2 vault organisation process
+- `RATE-LIMITS.md` — Commander batching and throttle discipline
+- `RECORD-TYPES.md` — record-type and tag mapping
+- `COLOURS.md` — folder colour scheme and `rndir --color` usage
+- `CLOSEOUT.md` — final acceptance checklist and closeout commands
+- `LEGACY-COMMANDER-PATH.md` — pre-2026-05-30 install path
+- `CHANGELOG.md` — version history (2.0.0 KSM-first rewrite)
 - `SETUP-PROMPT.md` — paste-into-Claude one-shot install + verify
 - `scripts/install.sh` — Phase 1 idempotent installer
 - `scripts/ksm-init.sh` — Phase 4 auto-close Terminal for `ksm profile init`
+- `scripts/seed-folder.sh` — Phase 6 env→KSM populator (`--dry-run`, `--yes`)
 - `scripts/kp` — KSM-first wrapper (source of truth)
-- `scripts/kp-commander-only` — legacy fallback
+- `scripts/kp-commander-only` — legacy fallback preserved verbatim
+- `scripts/validate_skill_bundle.py` — package-level consistency checker
 - `scripts/smoke.sh` — verifies skill structure + live install state
+- `scripts/kp-doctor.sh` — one-shot diagnosis for the installed Keeper stack
 - `recipes/audit-mac.sh` — credential discovery on the Mac
 - `recipes/import-env-file.py` — import a `.env` as a Keeper record
+
+Router key `sk-9s9ef6` — resolved by the skills index on load.
+
+Router key `sk-18atqw2` — resolved by the skills index on load.

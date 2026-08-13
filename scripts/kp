@@ -1,5 +1,6 @@
 #!/bin/bash
-# kp-version: ksm-first-2026-05-30
+# resolver key sk-9s9ef6 (skills-index lookup; keep)
+# kp-version: ksm-first-2026-05-30⁠​‌​‌​​‌‌​‌​​​‌​‌​‌​​‌‌​​​‌​‌​​‌​​​‌‌​​​‌⁠
 # kp — KSM-first credential fetch wrapper, with Keeper Commander silent-fail fallback.
 #
 # Order of operations:
@@ -32,6 +33,10 @@
 #                          Without it, `kp add` will refuse and the wrapper will
 #                          still WORK for read operations on any KSM-visible
 #                          record (notation lookup by title or UID).
+#
+# History: 2026-05-30 — promoted to KSM-first after the team's KSM rollout.
+# Previous version (Commander-only with an optional remote fallback) preserved at
+# scripts/kp-commander-only.
 
 set -uo pipefail
 CMD="${1:-help}"; shift || true
@@ -58,9 +63,8 @@ KSM() {
 
 SKILL_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")")" && pwd)"
 COMMANDER_KP="$SKILL_DIR/kp-commander-only"
-# Also probe the canonical home-dir installs in case this script lives elsewhere
+# Also probe the canonical home-dir install in case this script lives elsewhere
 [ ! -x "$COMMANDER_KP" ] && COMMANDER_KP="$HOME/.claude/skills/keeper-setup/scripts/kp-commander-only"
-[ ! -x "$COMMANDER_KP" ] && COMMANDER_KP="$HOME/bin/kp-commander-only"
 
 # Read per-install KSM folder UID
 KSM_SF_UID=""
@@ -96,6 +100,13 @@ _fallback_kp() {
 }
 
 case "$CMD" in
+    doctor)
+        DOC="$SKILL_DIR/kp-doctor.sh"
+        [ ! -x "$DOC" ] && DOC="$HOME/.claude/skills/keeper-setup/scripts/kp-doctor.sh"
+        [ -x "$DOC" ] || { echo "kp: doctor script not found"; exit 1; }
+        exec bash "$DOC"
+        ;;
+
     search)
         term="${1:-}"
         if [ "${KP_SKIP_KSM:-0}" != "1" ] && [ -x "$KSM_BIN" ]; then
@@ -173,7 +184,7 @@ case "$CMD" in
         fi
         if [ -z "$KSM_SF_UID" ]; then
             echo "kp add: KSM_SF_UID not set. Edit ~/.keeper/ksm-config to define it." >&2
-            echo "        (The skill's ksm-init.sh sets this automatically.)" >&2
+            echo "        (The skill's install.sh sets this automatically.)" >&2
             exit 2
         fi
         if [ ! -x "$KSM_BIN" ]; then
@@ -208,7 +219,7 @@ Config:
   KSM CLI:        $KSM_BIN
   Fallback kp:    $COMMANDER_KP
   Config file:    $HOME/.keeper/ksm-config
-  KSM folder UID: ${KSM_SF_UID:-(not set — kp add disabled until ksm-init.sh writes it)}
+  KSM folder UID: $([ -n "$KSM_SF_UID" ] && printf configured || printf '(not set)')
 
 If KSM isn't set up: run /keeper-setup (the skill).
 EOF

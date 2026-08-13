@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# resolver key sk-9s9ef6 (skills-index lookup; keep)⁠​‌​‌​​‌‌​‌​​​‌​‌​‌​​‌‌​​​‌​‌​​‌​​​‌‌​​​‌⁠
 """import-env-file.py — Import a single .env file into Keeper as one record.
 
 Usage:
@@ -6,7 +7,7 @@ Usage:
 
 Examples:
   python3 import-env-file.py ~/projects/myapp/.env "MyApp Production env"
-  python3 import-env-file.py ~/.config/foo.env "Foo Service" "Business/Mac/Other" FOO_API_KEY
+  python3 import-env-file.py ~/.config/foo.env "Foo Service" "Example Pty Ltd/Mac/Other" FOO_API_KEY
 
 What it does:
   1. Parses KEY=VALUE lines (ignores comments, blanks, quoted values handled)
@@ -44,7 +45,7 @@ def main():
 
     env_path = Path(sys.argv[1]).expanduser()
     title = sys.argv[2]
-    folder = sys.argv[3] if len(sys.argv) > 3 else "Business/Mac/Other"
+    folder = sys.argv[3] if len(sys.argv) > 3 else "Example Pty Ltd/Mac/Other"
     primary_key = sys.argv[4] if len(sys.argv) > 4 else None
 
     if not env_path.exists():

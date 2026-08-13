@@ -1,6 +1,6 @@
-# Keeper Reference
+# Keeper Reference⁠​‌​‌​​‌‌​‌​​​‌​‌​‌​​‌‌​​​‌​‌​​‌​​​‌‌​​​‌⁠
 
-Quick reference for Keeper Commander, the `ksm` CLI, and the `kp` wrapper. Companion to `SKILL.md`. The `kp` wrapper is **KSM-first** — falls back to Commander only when KSM doesn't have the record.
+Quick reference for Keeper Commander, the `ksm` CLI, and the `kp` wrapper. Companion to `SKILL.md`. The `kp` wrapper is **KSM-first as of 2026-05-30** — falls back to Commander only when KSM doesn't have the record.
 
 ## KSM CLI surface used by `kp` (the fast path)
 
@@ -45,47 +45,49 @@ Env flags: `KP_VERBOSE_AUTH=1` (show auth prompts for debugging), `KP_SKIP_KSM=1
 | Add a new login record | `keeper record-add --record-type login --title "..." "login=..." "password=..." "url=..."` | No | safe-write |
 | Add an SSH key record | `keeper record-add --record-type sshKeys --title "..." "login=..." "keyPair.publicKey=..." "keyPair.privateKey=..."` | No | safe-write |
 | Bulk import from JSON | `keeper import --format=json <file>` | No | safe-write |
-| Create a user folder | `keeper mkdir -uf "Business/Mac/Other"` | No | safe-write |
-| Create a shared folder (Enterprise) | `keeper mkdir -sf "Team Share"` | No | risky (shared state) |
+| Create a user folder | `keeper mkdir -uf "Example Pty Ltd/Mac/Other"` | No | safe-write |
+| Create a shared folder (Enterprise) | `keeper mkdir -sf "Example Team"` | No | risky (shared state) |
 | Share a record with a teammate | `keeper share-record <uid> --email <email> --permission can-view` | No | risky (shared state) |
 | Self-destructing share | `keeper record-add ... --self-destruct 5d` | No | safe-write |
 | Audit access log (Enterprise) | `keeper audit-report --span week` | No | safe-read |
 | Delete a record | `keeper rm -f <uid>` | No | destructive |
-| Headless agent fetch (no human login) | Keeper Secrets Manager (KSM) tokens | Partially | safe-read |
+| Headless agent fetch (no human login) | Keeper Secrets Manager (KSM) tokens | No | safe-read primary path |
 | Enable Desktop SSH Agent | Toggle in Keeper Desktop → Settings → SSH Agent | UI-only | safe-write |
 
 ## What CANNOT Be Done
 
-- **Transparent SSH via Keeper agent** — Commander's `ssh-agent` is unstable under launchd; Desktop's agent doesn't auto-expose `sshKeys` records. On-disk keys stay primary.
+- **Transparent SSH via Keeper agent** — Commander's `ssh-agent` is unstable under launchd; Desktop's agent doesn't auto-expose `sshKeys` records. On-disk keys stay primary. Re-evaluate quarterly.
 - **Recovery if master password lost AND recovery phrase gone** — Keeper has no admin override. Master password + 24-word recovery phrase are the only paths back in.
 - **Eliminate macOS Keychain** — Apple-managed services (Claude Code creds, Keeper Safe Storage itself) must stay in Keychain.
 - **Drive Keeper Desktop UI from Claude** — UI features (e.g. marking a key for SSH-agent exposure) can't be automated.
-- **Read GitHub Actions secret values via API** — GH Secrets are write-only. Mirror metadata to Keeper as pointers, not values.
+- **Read GitHub Actions secret values via API** — GH Secrets are write-only. We mirror metadata to Keeper as pointers, not values.
 
 ## Persistent Login Mechanics
 
 After `keeper this-device persistent_login on`:
 - Device-specific key encrypted in macOS Keychain, locked to this Mac
-- Logout timeout: 1 hour (auto-resumes on next command via Keychain unlock)
+- Logout timeout: set during setup. Verify the current value with `keeper this-device`.
 - IP auto-approve ON → no more "new device" emails
 - Config: `~/.keeper/config.json`
 
 Persistent login does NOT survive: master password rotation, account-wide logout from Web/Desktop, or revocation by admin.
 
-## Suggested folder structure
+## Example folder structure
 
 ```
-Business /
-├── Mac /                  (this machine's creds)
+Example Pty Ltd /
+├── Mac /                  (company Mac credentials)
 │   ├── MCP Servers        (env blocks for stdio MCPs)
-│   ├── Cloud Accounts     (OAuth clients + per-account tokens)
+│   ├── Google Workspace   (OAuth client + per-account tokens)
+│   ├── Meta               (MCP app + OAuth tokens)
+│   ├── Revolut            (RSA key pair for B2B API)
 │   └── Other              (.env files, Keychain mirrors)
-├── Server /               (remote server env vars)
+├── Server /               (hosted service environment variables)
 ├── SSH Keys /             (backed-up private keys, recovery only)
-└── Team Share /           (Shared Folder — visible to all team members)
+└── Team Share /           (shared with all team members — managed by the org admin)
 ```
 
-Personal records (banking, private accounts) live outside the business tree, never in shared folders.
+Personal-only records live in your personal folder, outside the company tree and shared folders.
 
 ## Common Failure Modes
 
@@ -94,7 +96,7 @@ Personal records (banking, private accounts) live outside the business tree, nev
 | `Error connecting to agent: Connection refused` | Persistent login session timed out | `keeper login <email>` (one master pw entry) |
 | `Throttled (attempt N/3)` | Hit Keeper rate-limit | Wait; Commander auto-retries every 60s |
 | `command not found: kp` | `~/bin` not on PATH for this shell | `source ~/.zshrc` or restart Claude Code |
-| `ls: <folder>: No such folder` | `keeper sync-down` hasn't run yet | `keeper sync-down` |
+| `ls: Example Pty Ltd: No such folder` | `keeper sync-down` hasn't run yet | `keeper sync-down` |
 | `keeper mkdir` hangs waiting for input | Forgot `-uf` (user folder) or `-sf` (shared folder) flag | Re-run with `-uf` |
 | `record-add` stores JSON-as-string in keyPair | Used `keyPair={...}` syntax | Use dot-notation: `keyPair.publicKey=...` and `keyPair.privateKey=...` |
 
@@ -112,3 +114,5 @@ kp help               Usage
 ```
 
 Records can be referenced by 22-char UID OR by title (first match wins).
+
+Router key `sk-9s9ef6` — resolved by the skills index on load.

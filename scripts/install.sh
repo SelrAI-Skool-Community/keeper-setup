@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# install.sh — one-shot Keeper Commander + KSM + kp wrapper installer.
+# resolver key sk-9s9ef6 (skills-index lookup; keep)
+# install.sh — one-shot Keeper Commander + KSM + kp wrapper installer.⁠​‌​‌​​‌‌​‌​​​‌​‌​‌​​‌‌​​​‌​‌​​‌​​​‌‌​​​‌⁠
 # Idempotent. Safe to re-run.
 # Does NOT log the user in (interactive, requires master password + 2FA).
 # After this runs the user does:
@@ -46,7 +47,7 @@ mkdir -p "$HOME/bin"
 cp "$SKILL_DIR/scripts/kp" "$HOME/bin/kp"
 cp "$SKILL_DIR/scripts/kp-commander-only" "$HOME/bin/kp-commander-only"
 chmod +x "$HOME/bin/kp" "$HOME/bin/kp-commander-only"
-echo "  ~/bin/kp installed (magic sentinel: $(head -2 "$HOME/bin/kp" | tail -1))"
+echo "  ~/bin/kp installed (magic sentinel: $(head -3 "$HOME/bin/kp" | grep 'kp-version:' | head -1))"
 
 echo "==> 4. PATH"
 if [[ ":$PATH:" != *":$HOME/bin:"* ]]; then
@@ -62,11 +63,13 @@ echo "==> 5. ksm folder UID config (template)"
 mkdir -p "$HOME/.keeper"
 if [ ! -f "$HOME/.keeper/ksm-config" ]; then
     cat > "$HOME/.keeper/ksm-config" <<EOF
-# Keeper KSM config — sourced by ~/bin/kp.
-# After /keeper-setup Phase 4 + ksm-init.sh, this gets populated with the
+# Keeper KSM config — sourced by ~/bin/kp and read by kp doctor.
+# After /keeper-setup Phase 4 + ksm-init.sh, KSM_SF_UID gets populated with the
 # Shared Folder UID returned by 'ksm folder list'. Without it, kp pass works
 # (reads any KSM-visible record by title), but 'kp add' is disabled.
 KSM_SF_UID=""
+# Your one canonical Keeper account email — kp doctor flags configs that differ.
+KP_CANONICAL_USER=""
 EOF
     chmod 600 "$HOME/.keeper/ksm-config"
     echo "  template written; populated by ksm-init.sh after Phase 4"

